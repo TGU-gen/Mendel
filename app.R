@@ -156,8 +156,14 @@ simuluj_populaci <- function(q0, W_AA, W_Aa, W_aa, u, v, m, q_m, generace) {
 # -------------------------------------------------------------------
 ui <- navbarPage(
   theme = app_theme,
-  title = "Populační genetika: HWE & Evoluční síly",
-  
+  title = "Genetika populací: HWE & Evoluční síly",
+  footer = tags$div(
+    class = "text-muted",
+    style = "text-align: center; padding: 12px; margin-top: 20px;
+             border-top: 1px solid #ddd; font-size: 0.9em;",
+    HTML(paste0("Autor: <b>Tomáš Urban</b>, MENDELU &copy; ",
+                format(Sys.Date(), "%Y")))
+  ),  
   # =================================================================
   # ZÁLOŽKA 1: DYNAMICKÝ PUNNETTŮV ČTVEREC (PLOCHY GENOTYPŮ)
   # =================================================================
