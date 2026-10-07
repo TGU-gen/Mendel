@@ -1,6 +1,9 @@
 # ===================================================================
 # INTERAKTIVNÍ SHINY APLIKACE: POPULAČNÍ GENETIKA, HWE A EVOLUČNÍ SÍLY
-# (Punnettův čtverec, HWE 2 alely, HWE 3 alely / ABO, Evoluční síly, Genetický drift, Inbreeding)
+# (Punnettův čtverec, HWE 2 alely, HWE 3 alely / ABO, Evoluční síly, Genetický drift, Inbreeding, Drift vs. Selekce)
+# Version 14 - logo s odkazem v pravém horním rohu (nastavení v sekci "Logo" nad definicí UI)
+# Version 13 - NOVÁ ZÁLOŽKA 7 "Drift vs. Selekce": Wright-Fisher se selekcí, X ~ Bin(2Ne, q_sel),
+#              kritérium Ne*s (drift dominuje při Ne*s < 1, selekce při Ne*s > 10)
 # Version 12 - Inbreeding v konečné populaci: F vzniká z velikosti populace N a počtu generací t
 #              (nový graf akumulace inbreedingu, přepínač zdroje F, rozšířená nápověda)
 #              + graf změny genotypových frekvencí: křivka AA čárkovaně a navrch (viditelná i při p = q)
@@ -214,6 +217,60 @@ inbreeding_t_do_F <- function(N, F_cil) {
   log(1 - F_cil) / log(1 - 1 / (2 * N))
 }
 
+# G) Drift vs. selekce: Wright-Fisherův model se selekcí
+#    Fitness: W_AA = 1, W_Aa = 1 + h*s, W_aa = 1 + s (alela a je výhodná)
+#    Každá generace: 1) selekce -> q_sel, 2) vzorkování gamet X ~ Bin(2Ne, q_sel), q' = X / 2Ne
+simuluj_drift_selekce <- function(Ne, s, h, q0, K, generace) {
+  Ne <- round(Ne)
+  n_gamet <- 2 * Ne
+  W_AA <- 1; W_Aa <- 1 + h * s; W_aa <- 1 + s
+  
+  selekce_krok <- function(q) {
+    p <- 1 - q
+    W_bar <- p^2 * W_AA + 2 * p * q * W_Aa + q^2 * W_aa
+    pmin(1, pmax(0, (p * q * W_Aa + q^2 * W_aa) / W_bar))
+  }
+  
+  # stochastické linie (K replikátů)
+  Q <- matrix(NA_real_, nrow = generace + 1, ncol = K)
+  Q[1, ] <- q0
+  for (t in seq_len(generace)) {
+    q_sel <- selekce_krok(Q[t, ])
+    Q[t + 1, ] <- rbinom(K, size = n_gamet, prob = q_sel) / n_gamet
+  }
+  
+  # deterministická trajektorie (selekce bez driftu)
+  q_det <- numeric(generace + 1)
+  q_det[1] <- q0
+  for (t in seq_len(generace)) q_det[t + 1] <- selekce_krok(q_det[t])
+  
+  q_konec <- Q[generace + 1, ]
+  list(
+    Ne = Ne, s = s, h = h, q0 = q0, K = K, generace = generace,
+    x = Ne * s,                          # Ne*s
+    Q = Q, q_det = q_det, q_mean = rowMeans(Q),
+    fixed = sum(q_konec == 1), lost = sum(q_konec == 0),
+    poly = sum(q_konec > 0 & q_konec < 1)
+  )
+}
+
+# Pravděpodobnost fixace (Kimura, aditivní selekce h = 1/2), x = Ne*s
+#   P_fix = (1 - exp(-2*x*q0)) / (1 - exp(-2*x));  pro x -> 0 je P_fix = q0 (neutralita)
+ds_pfix <- function(x, q0) {
+  ifelse(x < 1e-8, q0, expm1(-2 * x * q0) / expm1(-2 * x))
+}
+
+# Režim podle Ne*s
+ds_rezim <- function(x) {
+  if (x < 1) {
+    list(text = "Drift dominuje (Ne·s < 1)", barva = "#0072B2")
+  } else if (x <= 10) {
+    list(text = "Přechodová zóna (1 ≤ Ne·s ≤ 10)", barva = "#E69F00")
+  } else {
+    list(text = "Selekce dominuje (Ne·s > 10)", barva = "#009E73")
+  }
+}
+
 # E) Výpočet jednoho evolučního kroku (Selekce, Mutace, Migrace pro 2 alely)
 vypocti_dalsi_generaci <- function(q, W_AA, W_Aa, W_aa, u, v, m, q_m) {
   p <- 1 - q
@@ -328,11 +385,60 @@ vzorce_box <- function(...) {
 }
 
 # -------------------------------------------------------------------
+# LOGO V PRAVÉM HORNÍM ROHU (s odkazem na jiný web)
+# -------------------------------------------------------------------
+# Soubor s logem uložte do podsložky "www" vedle tohoto skriptu (např. www/logo.png).
+# Pokud soubor neexistuje, zobrazí se místo loga textový odkaz (logo_text).
+logo_soubor <- "logo.png"                # název souboru ve složce www
+logo_odkaz  <- "https://umfgz.af.mendelu.cz/"  # adresa, na kterou logo odkazuje
+logo_text   <- "AF MENDELU"                 # záložní text + popisek při najetí myší
+logo_vyska  <- 36                        # výška loga v pixelech
+
+vytvor_logo_html <- function() {
+  obsah <- if (file.exists(file.path("www", logo_soubor))) {
+    tags$img(src = logo_soubor, alt = logo_text, style = paste0("height: ", logo_vyska, "px;"))
+  } else {
+    logo_text
+  }
+  as.character(tags$a(
+    href = logo_odkaz, target = "_blank", rel = "noopener noreferrer",
+    class = "navbar-logo", title = logo_text, obsah
+  ))
+}
+
+logo_css <- "
+  .navbar-logo {
+    position: absolute;
+    right: 15px;
+    top: 0;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    z-index: 1100;
+    color: #ffffff;
+    font-weight: bold;
+    text-decoration: none;
+  }
+  .navbar-logo:hover, .navbar-logo:focus { opacity: 0.85; color: #ffffff; text-decoration: none; }
+  @media (max-width: 767px) { .navbar-logo { right: 60px; } }
+"
+
+# JavaScript vloží logo do horní lišty (navbar) po načtení stránky
+logo_js <- paste0(
+  "var logoHtml = ", jsonlite::toJSON(vytvor_logo_html(), auto_unbox = TRUE), ";\n",
+  "$(function() { $('.navbar > .container-fluid').first().append(logoHtml); });"
+)
+
+# -------------------------------------------------------------------
 # 2. UŽIVATELSKÉ ROZHRANÍ (UI - NAVBAR)
 # -------------------------------------------------------------------
 ui <- navbarPage(
   theme = app_theme,
-  header = tags$head(tags$style(HTML(vzorce_css))),
+  header = tags$head(
+    tags$style(HTML(vzorce_css)),
+    tags$style(HTML(logo_css)),
+    tags$script(HTML(logo_js))
+  ),
   title = "Genetika populací: HWE & Evoluční síly",
   footer = tags$div(
     class = "text-muted",
@@ -687,6 +793,68 @@ ui <- navbarPage(
                    tableOutput("tabulka_inbreed_comp")
                  )
           )
+        )
+      )
+    )
+  ),
+  
+  # =================================================================
+  # ZÁLOŽKA 7: DRIFT VS. SELEKCE (KRITÉRIUM Ne*s)
+  # =================================================================
+  tabPanel(
+    "7. Drift vs. Selekce",
+    sidebarLayout(
+      sidebarPanel(
+        width = 4,
+        h3("Drift vs. selekce (Ne · s)"),
+        helpText("Wright-Fisherův model, ve kterém se v každé generaci nejprve uplatní selekce (výhodná alela a) a poté náhodné vzorkování gamet. O tom, zda převládne náhoda, nebo selekce, rozhoduje součin efektivní velikosti populace a selekčního koeficientu, Ne · s."),
+        selectInput("ds_preset", "Výukový scénář (Preset):",
+                    choices = c(
+                      "Vlastní nastavení" = "custom",
+                      "Drift dominuje (Ne·s = 0,5)" = "drift",
+                      "Přechodová zóna (Ne·s = 3)" = "prechod",
+                      "Selekce dominuje (Ne·s = 15)" = "selekce"
+                    ), selected = "custom"),
+        hr(),
+        numericInput("ds_Ne", "Efektivní velikost populace Ne:", value = 100, min = 5, max = 5000, step = 10),
+        numericInput("ds_s", "Selekční koeficient s (W_aa = 1 + s):", value = 0.03, min = 0, max = 0.5, step = 0.001),
+        sliderInput("ds_h", "Dominance h (W_Aa = 1 + h·s):", min = 0, max = 1, value = 0.5, step = 0.05),
+        sliderInput("ds_q0", "Počáteční frekvence výhodné alely a (q₀):", min = 0.01, max = 0.99, value = 0.10, step = 0.01),
+        uiOutput("ds_ns_text"),
+        hr(),
+        sliderInput("ds_K", "Počet replikátních populací (linií):", min = 10, max = 200, value = 50, step = 10),
+        numericInput("ds_G", "Počet generací (t):", value = 300, min = 10, max = 1000, step = 10),
+        actionButton("btn_ds_sim", "Spustit novou simulaci", class = "btn-primary"),
+        br(), br(),
+        wellPanel(
+          h4("Výsledek simulace:"),
+          htmlOutput("ds_summary_html")
+        ),
+        vzorce_box(
+          vz("Selekce (fitness: AA = 1, Aa = 1 + <i>hs</i>, aa = 1 + <i>s</i>)",
+             paste0("<i>q</i><sub>sel</sub> = ", zl("<i>pq</i>(1 + <i>hs</i>) + <i>q</i><sup>2</sup>(1 + <i>s</i>)", "<i>p</i><sup>2</sup> + 2<i>pq</i>(1 + <i>hs</i>) + <i>q</i><sup>2</sup>(1 + <i>s</i>)"))),
+          vz("Vzorkování gamet (drift) po selekci",
+             "<i>X</i> ~ Bin(2<i>N</i><sub>e</sub>, <i>q</i><sub>sel</sub>), &nbsp; <i>q</i><sub><i>t</i>+1</sub> = <i>X</i> / 2<i>N</i><sub>e</sub>"),
+          vz("Deterministická změna (selekce), aditivní případ <i>h</i> = ½",
+             paste0("Δ<i>q</i><sub>sel</sub> ≈ ", zl("<i>s</i>", "2"), " <i>q</i>(1 − <i>q</i>)")),
+          vz("Náhodná změna (drift)",
+             paste0("Var(Δ<i>q</i><sub>drift</sub>) = ", zl("<i>q</i>(1 − <i>q</i>)", "2<i>N</i><sub>e</sub>"))),
+          vz("Kritérium režimu",
+             "<i>N</i><sub>e</sub> · <i>s</i> &lt; 1: drift dominuje; &nbsp; 1 ≤ <i>N</i><sub>e</sub> · <i>s</i> ≤ 10: přechodová zóna; &nbsp; <i>N</i><sub>e</sub> · <i>s</i> &gt; 10: selekce dominuje"),
+          vz("Pravděpodobnost fixace (Kimura, aditivní selekce <i>h</i> = ½)",
+             paste0("<i>P</i><sub>fix</sub> = ", zl("1 − e<sup>−2<i>N</i><sub>e</sub><i>s</i><i>q</i><sub>0</sub></sup>", "1 − e<sup>−2<i>N</i><sub>e</sub><i>s</i></sup>"), ", &nbsp; neutrálně <i>P</i><sub>fix</sub> = <i>q</i><sub>0</sub>")),
+          helpText("Poznámka: přesná hodnota, na které selekce a drift soutěží, je v difuzní aproximaci přibližně 2·Ne·s (při aditivní selekci). Meze 1 a 10 jsou řádové a slouží k orientaci.")
+        )
+      ),
+      
+      mainPanel(
+        width = 8,
+        fluidRow(
+          column(12, plotOutput("plot_ds_traj", height = "400px"))
+        ),
+        br(),
+        fluidRow(
+          column(12, plotOutput("plot_ds_regime", height = "340px"))
         )
       )
     )
@@ -1395,6 +1563,164 @@ server <- function(input, output, session) {
       Rozdil_Pocet = c(as.integer(res$counts_F[gen] - res$counts_0[gen]), 0L)
     )
   }, digits = 0)
+
+  # -----------------------------------------------------------------
+  # LOGIKA PRO ZÁLOŽKU 7: DRIFT VS. SELEKCE
+  # -----------------------------------------------------------------
+  observeEvent(input$ds_preset, {
+    if (input$ds_preset == "drift") {
+      updateNumericInput(session, "ds_Ne", value = 100)
+      updateNumericInput(session, "ds_s", value = 0.005)
+      updateNumericInput(session, "ds_G", value = 400)
+    } else if (input$ds_preset == "prechod") {
+      updateNumericInput(session, "ds_Ne", value = 100)
+      updateNumericInput(session, "ds_s", value = 0.03)
+      updateNumericInput(session, "ds_G", value = 600)
+    } else if (input$ds_preset == "selekce") {
+      updateNumericInput(session, "ds_Ne", value = 100)
+      updateNumericInput(session, "ds_s", value = 0.15)
+      updateNumericInput(session, "ds_G", value = 250)
+    }
+    if (input$ds_preset != "custom") {
+      updateSliderInput(session, "ds_h", value = 0.5)
+      updateSliderInput(session, "ds_q0", value = 0.10)
+    }
+  }, ignoreInit = TRUE)
+  
+  output$ds_ns_text <- renderUI({
+    req(is.finite(input$ds_Ne), is.finite(input$ds_s))
+    x <- input$ds_Ne * input$ds_s
+    r <- ds_rezim(x)
+    HTML(paste0(
+      "<b>Ne · s =</b> <span style='font-weight: bold;'>", round(x, 3), "</span><br/>",
+      "<span style='color: ", r$barva, "; font-weight: bold;'>", r$text, "</span>"
+    ))
+  })
+  
+  ds_data <- reactive({
+    input$btn_ds_sim   # tlačítko = nový náhodný běh
+    req(is.finite(input$ds_Ne), input$ds_Ne >= 5,
+        is.finite(input$ds_s), input$ds_s >= 0,
+        is.finite(input$ds_G), input$ds_G >= 10)
+    simuluj_drift_selekce(
+      Ne = input$ds_Ne, s = input$ds_s, h = input$ds_h,
+      q0 = input$ds_q0, K = input$ds_K, generace = input$ds_G
+    )
+  })
+  
+  output$plot_ds_traj <- renderPlot({
+    res <- ds_data()
+    G <- res$generace
+    K <- res$K
+    r <- ds_rezim(res$x)
+    
+    df_lines <- data.frame(
+      Generace = rep(0:G, times = K),
+      Linie = rep(seq_len(K), each = G + 1),
+      q = as.vector(res$Q)
+    )
+    lab_det <- "Deterministicky (jen selekce, bez driftu)"
+    lab_mean <- "Průměr simulovaných linií"
+    lab_neu <- "Neutrální očekávání (E[q] = q₀)"
+    df_ref <- data.frame(
+      Generace = rep(0:G, 3),
+      q = c(res$q_det, res$q_mean, rep(res$q0, G + 1)),
+      Typ = factor(rep(c(lab_det, lab_mean, lab_neu), each = G + 1),
+                   levels = c(lab_det, lab_mean, lab_neu))
+    )
+    
+    ggplot() +
+      geom_line(data = df_lines, aes(x = Generace, y = q, group = Linie),
+                color = "#7f8fa6", alpha = 0.45, linewidth = 0.5) +
+      geom_hline(yintercept = c(0, 1), linetype = "dashed", color = "gray40") +
+      geom_line(data = df_ref, aes(x = Generace, y = q, color = Typ, linetype = Typ), linewidth = 1.3) +
+      scale_color_manual(values = setNames(c("black", "#D55E00", "gray45"), c(lab_det, lab_mean, lab_neu))) +
+      scale_linetype_manual(values = setNames(c("solid", "solid", "dotted"), c(lab_det, lab_mean, lab_neu))) +
+      labs(title = paste0("Drift vs. selekce: Ne = ", res$Ne, ", s = ", res$s,
+                          "  (Ne·s = ", round(res$x, 2), ")"),
+           subtitle = r$text,
+           x = "Čas (generace t)", y = "Frekvence výhodné alely a (q)", color = "", linetype = "") +
+      ylim(-0.02, 1.02) +
+      theme_minimal(base_size = 13) +
+      theme(
+        legend.position = "top",
+        plot.title = element_text(face = "bold"),
+        plot.subtitle = element_text(color = r$barva, face = "bold"),
+        panel.background = element_rect(fill = "white", color = NA),
+        plot.background = element_rect(fill = "white", color = NA)
+      ) +
+      guides(color = guide_legend(nrow = 2), linetype = guide_legend(nrow = 2))
+  })
+  
+  output$plot_ds_regime <- renderPlot({
+    res <- ds_data()
+    x_seq <- 10^seq(-2, 3, length.out = 300)
+    df_c <- data.frame(x = x_seq, P = ds_pfix(x_seq, res$q0))
+    
+    p_sim <- res$fixed / res$K
+    p_teor <- ds_pfix(res$x, res$q0)
+    x_ok <- res$x >= 0.01 && res$x <= 1000
+    
+    g <- ggplot(df_c, aes(x = x, y = P)) +
+      annotate("rect", xmin = 0.01, xmax = 1, ymin = 0, ymax = 1, fill = "#0072B2", alpha = 0.10) +
+      annotate("rect", xmin = 1, xmax = 10, ymin = 0, ymax = 1, fill = "#E69F00", alpha = 0.14) +
+      annotate("rect", xmin = 10, xmax = 1000, ymin = 0, ymax = 1, fill = "#009E73", alpha = 0.10) +
+      annotate("text", x = 0.1, y = 1.04, label = "DRIFT", fontface = "bold", color = "#0072B2") +
+      annotate("text", x = sqrt(10), y = 1.04, label = "PŘECHOD", fontface = "bold", color = "#B07800") +
+      annotate("text", x = 100, y = 1.04, label = "SELEKCE", fontface = "bold", color = "#009E73") +
+      geom_hline(yintercept = res$q0, linetype = "dashed", color = "gray40") +
+      annotate("text", x = 0.011, y = res$q0, label = paste0("neutrálně P = q₀ = ", res$q0),
+               hjust = 0, vjust = -0.6, size = 3.6, color = "gray30") +
+      geom_line(linewidth = 1.3, color = "#1a2b4c")
+    
+    if (x_ok) {
+      g <- g +
+        geom_vline(xintercept = res$x, linetype = "dotted", color = "gray30") +
+        geom_point(data = data.frame(x = res$x, P = p_teor), size = 4, color = "#1a2b4c") +
+        geom_point(data = data.frame(x = res$x, P = p_sim), size = 4, shape = 18, color = "#D55E00")
+    }
+    
+    g +
+      scale_x_log10(breaks = c(0.01, 0.1, 1, 10, 100, 1000),
+                    labels = c("0,01", "0,1", "1", "10", "100", "1000")) +
+      coord_cartesian(ylim = c(0, 1.07)) +
+      labs(title = "Pravděpodobnost fixace výhodné alely v závislosti na Ne·s",
+           subtitle = if (abs(res$h - 0.5) > 1e-9) "Teoretická křivka platí pro aditivní selekci (h = 0,5)." else NULL,
+           caption = paste0("● teorie (Kimura, h = ½)     ◆ simulace: podíl fixovaných linií v generaci ", res$generace,
+                            if (!x_ok) "     (aktuální Ne·s je mimo zobrazený rozsah)" else ""),
+           x = "Ne · s  (logaritmická osa)", y = "Pravděpodobnost fixace") +
+      theme_minimal(base_size = 13) +
+      theme(
+        plot.title = element_text(face = "bold"),
+        plot.caption = element_text(hjust = 0, size = 10),
+        panel.background = element_rect(fill = "white", color = NA),
+        plot.background = element_rect(fill = "white", color = NA)
+      )
+  })
+  
+  output$ds_summary_html <- renderUI({
+    res <- ds_data()
+    r <- ds_rezim(res$x)
+    K <- res$K
+    p_teor <- ds_pfix(res$x, res$q0)
+    teor_txt <- if (abs(res$h - 0.5) < 1e-9) {
+      paste0("<b>Teoretická pravděpodobnost fixace (Kimura):</b> ", round(p_teor, 3), "<br/>")
+    } else {
+      "<small>Kimurova teorie platí pro h = 0,5.</small><br/>"
+    }
+    
+    HTML(paste0(
+      "<b>Režim:</b> <span style='color: ", r$barva, "; font-weight: bold;'>", r$text, "</span><br/>",
+      "<b>Fixované linie (q = 1):</b> <span style='color: #D55E00; font-weight: bold;'>", res$fixed, "</span> (", round(res$fixed / K * 100, 1), "%)<br/>",
+      "<b>Ztracené linie (q = 0):</b> <span style='color: #0072B2; font-weight: bold;'>", res$lost, "</span> (", round(res$lost / K * 100, 1), "%)<br/>",
+      "<b>Polymorfní linie (0 < q < 1):</b> ", res$poly, " (", round(res$poly / K * 100, 1), "%)<br/>",
+      teor_txt,
+      "<b>Neutrální očekávání (drift):</b> ", res$q0, "<br/>",
+      "<b>Deterministické q v generaci ", res$generace, ":</b> ", round(res$q_det[res$generace + 1], 3), "<br/>",
+      "<b>Průměrné q simulovaných linií:</b> ", round(res$q_mean[res$generace + 1], 3),
+      if (res$poly > 0) paste0("<br/><small>Pozn.: ", res$poly, " linií ještě segreguje, simulovaný podíl fixace je proto v čase t dolním odhadem. Prodlužte počet generací.</small>") else ""
+    ))
+  })
 }
 
 # -------------------------------------------------------------------
