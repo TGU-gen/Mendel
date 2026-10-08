@@ -1,13 +1,8 @@
 # ===================================================================
 # INTERAKTIVNÍ SHINY APLIKACE: POPULAČNÍ GENETIKA, HWE A EVOLUČNÍ SÍLY
 # (Punnettův čtverec, HWE 2 alely, HWE 3 alely / ABO, Evoluční síly, Genetický drift, Inbreeding, Drift vs. Selekce)
-# Version 14 - logo s odkazem v pravém horním rohu (nastavení v sekci "Logo" nad definicí UI)
-# Version 13 - NOVÁ ZÁLOŽKA 7 "Drift vs. Selekce": Wright-Fisher se selekcí, X ~ Bin(2Ne, q_sel),
-#              kritérium Ne*s (drift dominuje při Ne*s < 1, selekce při Ne*s > 10)
-# Version 12 - Inbreeding v konečné populaci: F vzniká z velikosti populace N a počtu generací t
-#              (nový graf akumulace inbreedingu, přepínač zdroje F, rozšířená nápověda)
-#              + graf změny genotypových frekvencí: křivka AA čárkovaně a navrch (viditelná i při p = q)
-# Autor: Tomáš Urban, MENDELU
+# vazba genů a X chromozom
+# Autor: Tomáš Urban, urban@mendelu.cz, UMFGZ, AF  MENDELU
 # ===================================================================
 
 options(encoding = "UTF-8")
@@ -390,8 +385,8 @@ vzorce_box <- function(...) {
 # Soubor s logem uložte do podsložky "www" vedle tohoto skriptu (např. www/logo.png).
 # Pokud soubor neexistuje, zobrazí se místo loga textový odkaz (logo_text).
 logo_soubor <- "logo.png"                # název souboru ve složce www
-logo_odkaz  <- "https://umfgz.af.mendelu.cz/"  # adresa, na kterou logo odkazuje
-logo_text   <- "AF MENDELU"                 # záložní text + popisek při najetí myší
+logo_odkaz  <- "https://www.mendelu.cz"  # adresa, na kterou logo odkazuje
+logo_text   <- "MENDELU"                 # záložní text + popisek při najetí myší
 logo_vyska  <- 36                        # výška loga v pixelech
 
 vytvor_logo_html <- function() {
@@ -450,7 +445,7 @@ ui <- navbarPage(
   # ZÁLOŽKA 1: DYNAMICKÝ PUNNETTŮV ČTVEREC (PLOCHY GENOTYPŮ)
   # =================================================================
   tabPanel(
-    "1. Punnettův čtverec (při HWE)",
+    "1. Punnettův čtverec (Plochy genotypů)",
     sidebarLayout(
       sidebarPanel(
         width = 4,
@@ -491,7 +486,7 @@ ui <- navbarPage(
   # ZÁLOŽKA 2: FREKVENCE ALEL, GENOTYPŮ A HWE TESTOVÁNÍ (2 ALELY)
   # =================================================================
   tabPanel(
-    "2. HWE model a testování",
+    "2. HWE model a testování (2 alely)",
     sidebarLayout(
       sidebarPanel(
         width = 4,
@@ -730,7 +725,7 @@ ui <- navbarPage(
   # ZÁLOŽKA 6: INBREEDING (PŘÍBUZENSKÉ KŘÍŽENÍ F)
   # =================================================================
   tabPanel(
-    "6. Inbreeding",
+    "6. Inbreeding (Koeficient F)",
     sidebarLayout(
       sidebarPanel(
         width = 4,
@@ -746,7 +741,7 @@ ui <- navbarPage(
         conditionalPanel(
           condition = "input.inbreed_zdroj == 'manual'",
           sliderInput("inbreed_F", "Koeficient inbreedingu (F):", min = 0.00, max = 1.00, value = 0.25, step = 0.01),
-          helpText("Příklady F: F = 0.25 (sourozenci / rodič-potomek), F = 0.125 (vlastní bratranci/sestřenice), F = 0 (panmixie).")
+          helpText("Příklady F: F = 0.25 (plní sourozenci / rodič-potomek), F = 0.125 (polorodí sourozenci, strýc-neteř), F = 0.0625 (vlastní bratranci/sestřenice), F = 0 (panmixie).")
         ),
         conditionalPanel(
           condition = "input.inbreed_zdroj == 'drift'",
