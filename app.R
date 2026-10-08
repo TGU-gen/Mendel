@@ -74,12 +74,12 @@ vypocti_hwe_3alely <- function(p, q, N = 1000, obs_counts = NULL) {
   if (r < 0) r <- 0
   
   gen_freq <- c(
-    AA = p^2,
-    BB = q^2,
-    OO = r^2,
-    AB = 2 * p * q,
-    AO = 2 * p * r,
-    BO = 2 * q * r
+    IᴬIᴬ = p^2,
+    IᴮIᴮ = q^2,
+    ii = r^2,
+    IᴬIᴮ = 2 * p * q,
+    Iᴬi = 2 * p * r,
+    Iᴮi = 2 * q * r
   )
   
   phen_freq <- c(
