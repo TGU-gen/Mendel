@@ -445,7 +445,7 @@ ui <- navbarPage(
   # ZÁLOŽKA 1: DYNAMICKÝ PUNNETTŮV ČTVEREC (PLOCHY GENOTYPŮ)
   # =================================================================
   tabPanel(
-    "1. Punnettův čtverec (Plochy genotypů)",
+    "1. Punnettův čtverec (za HWE)",
     sidebarLayout(
       sidebarPanel(
         width = 4,
@@ -486,7 +486,7 @@ ui <- navbarPage(
   # ZÁLOŽKA 2: FREKVENCE ALEL, GENOTYPŮ A HWE TESTOVÁNÍ (2 ALELY)
   # =================================================================
   tabPanel(
-    "2. HWE model a testování (2 alely)",
+    "2. HWE model a testování",
     sidebarLayout(
       sidebarPanel(
         width = 4,
@@ -725,7 +725,7 @@ ui <- navbarPage(
   # ZÁLOŽKA 6: INBREEDING (PŘÍBUZENSKÉ KŘÍŽENÍ F)
   # =================================================================
   tabPanel(
-    "6. Inbreeding (Koeficient F)",
+    "6. Inbreeding",
     sidebarLayout(
       sidebarPanel(
         width = 4,
