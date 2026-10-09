@@ -266,6 +266,51 @@ ds_rezim <- function(x) {
   }
 }
 
+# H) Vazbová nerovnováha (LD) dvou diallelních lokusů (Lewontin & Kojima 1960)
+#    Haplotypy: P11 = AB, P12 = Ab, P21 = aB, P22 = ab
+#    Frekvence alel: p1 = f(A), p2 = f(a), q1 = f(B), q2 = f(b)
+#    D = P11*P22 - P12*P21;  P11 = p1*q1 + D, P12 = p1*q2 - D, P21 = p2*q1 - D, P22 = p2*q2 + D
+#    Rekombinace: D_t = (1 - r)^t * D_0
+ld_meze <- function(p1, q1) {
+  p2 <- 1 - p1; q2 <- 1 - q1
+  list(Dmin = max(-p1 * q1, -p2 * q2),   # největší z hodnot -p1q1, -p2q2
+       Dmax = min(p1 * q2, p2 * q1))     # nejmenší z hodnot p1q2, p2q1
+}
+
+simuluj_ld <- function(p1, q1, D0, r, generace) {
+  p2 <- 1 - p1; q2 <- 1 - q1
+  t <- 0:generace
+  D <- D0 * (1 - r)^t
+  data.frame(Generace = t, D = D,
+             P11 = p1 * q1 + D, P12 = p1 * q2 - D,
+             P21 = p2 * q1 - D, P22 = p2 * q2 + D)
+}
+
+# I) Geny na diferenciálním úseku chromozomu X (typ Drosophila)
+#    p_f, p_m = frekvence alely A u samic a samců; p_m' = p_f, p_f' = (p_f + p_m)/2
+#    Průměrná frekvence (2/3 chromozomů X je u samic): p_bar = 2/3 p_f + 1/3 p_m (v čase konstantní)
+simuluj_X <- function(pf0, pm0, generace) {
+  n <- generace + 1
+  pf <- pm <- numeric(n)
+  pf[1] <- pf0; pm[1] <- pm0
+  for (i in seq_len(generace)) {
+    pf[i + 1] <- (pf[i] + pm[i]) / 2
+    pm[i + 1] <- pf[i]
+  }
+  # Genotypy samic v generaci t+1 vznikají spojením vajíček (pf) a spermií nesoucích X (pm) z generace t.
+  # Pro generaci 0 se předpokládají HW poměry uvnitř samic.
+  AA <- Aa <- aa <- numeric(n)
+  AA[1] <- pf0^2; Aa[1] <- 2 * pf0 * (1 - pf0); aa[1] <- (1 - pf0)^2
+  for (i in seq_len(generace)) {
+    AA[i + 1] <- pf[i] * pm[i]
+    Aa[i + 1] <- pf[i] * (1 - pm[i]) + (1 - pf[i]) * pm[i]
+    aa[i + 1] <- (1 - pf[i]) * (1 - pm[i])
+  }
+  data.frame(Generace = 0:generace, pf = pf, pm = pm,
+             p_prumer = 2 / 3 * pf + 1 / 3 * pm, rozdil = pf - pm,
+             AA = AA, Aa = Aa, aa = aa)
+}
+
 # E) Výpočet jednoho evolučního kroku (Selekce, Mutace, Migrace pro 2 alely)
 vypocti_dalsi_generaci <- function(q, W_AA, W_Aa, W_aa, u, v, m, q_m) {
   p <- 1 - q
@@ -438,7 +483,8 @@ ui <- navbarPage(
   footer = tags$div(
     class = "text-muted",
     style = "text-align: center; padding: 12px; margin-top: 20px; border-top: 1px solid #ddd; font-size: 0.9em;",
-    HTML(paste0("Autor: <b>Tomáš Urban</b>, UMFGZ, AF MENDELU © ", format(Sys.Date(), "%Y")))
+    HTML(paste0("Autor: <b>Tomáš Urban</b>, UMFGZ, AF MENDELU © ", format(Sys.Date(), "%Y"), " (verze 0.2) | ")),
+    actionLink("btn_cite_modal", "Jak citovat tuto aplikaci", icon = icon("quote-right"), style = "font-weight: bold; color: #2c7be5;")
   ),
   
   # =================================================================
@@ -853,6 +899,123 @@ ui <- navbarPage(
         )
       )
     )
+  ),
+  
+  # =================================================================
+  # ZÁLOŽKA 8: VAZBA GENŮ A VAZBOVÁ NEROVNOVÁHA (LD)
+  # =================================================================
+  tabPanel(
+    "8. Vazba genů (LD)",
+    sidebarLayout(
+      sidebarPanel(
+        width = 4,
+        h3("Vazba a vazbová nerovnováha"),
+        helpText("Dva vázané lokusy (A/a a B/b). Rekombinace v každé generaci postupně rozbíjí nenáhodné asociace alel (vazbovou nerovnováhu, LD), a to tím pomaleji, čím je vazba těsnější (menší r)."),
+        hr(),
+        sliderInput("ld_p1", "Frekvence alely A na 1. lokusu (p1):", min = 0.01, max = 0.99, value = 0.50, step = 0.01),
+        sliderInput("ld_q1", "Frekvence alely B na 2. lokusu (q1):", min = 0.01, max = 0.99, value = 0.50, step = 0.01),
+        sliderInput("ld_Dp", "Počáteční LD jako podíl maxima (D′):", min = -1, max = 1, value = 1, step = 0.05),
+        helpText("D′ = 1: největší možná kladná LD (gamety jen AB a ab při p1 = q1 = 0,5); D′ = 0: vazbová rovnováha; D′ < 0: nadbytek gamet Ab a aB."),
+        sliderInput("ld_r", "Rekombinační frakce (r):", min = 0, max = 0.5, value = 0.10, step = 0.01),
+        helpText("r = 0: úplná vazba; r = 0,5: žádná vazba (nezávislá segregace)."),
+        numericInput("ld_G", "Počet generací (t):", value = 50, min = 5, max = 300, step = 5),
+        checkboxInput("ld_compare", "Porovnat s r = 0,5; 0,3; 0,1; 0,05 (jako v přednášce)", value = TRUE),
+        radioButtons("ld_faze", "Vazbová fáze dvojitého heterozygota AaBb:",
+                     choices = c("cis (AB/ab)" = "cis", "trans (Ab/aB)" = "trans")),
+        hr(),
+        wellPanel(
+          h4("Výsledek:"),
+          htmlOutput("ld_summary_html")
+        ),
+        vzorce_box(
+          vz("Haplotypy (gametické frekvence)", "<i>P</i><sub>11</sub> = AB, &nbsp; <i>P</i><sub>12</sub> = Ab, &nbsp; <i>P</i><sub>21</sub> = aB, &nbsp; <i>P</i><sub>22</sub> = ab"),
+          vz("Frekvence alel z haplotypů", "<i>p</i><sub>1</sub> = <i>P</i><sub>11</sub> + <i>P</i><sub>12</sub>, &nbsp; <i>q</i><sub>1</sub> = <i>P</i><sub>11</sub> + <i>P</i><sub>21</sub>"),
+          vz("Vazbová rovnováha (nezávislé lokusy)", "<i>P</i><sub>11</sub> = <i>p</i><sub>1</sub><i>q</i><sub>1</sub>, &nbsp; <i>P</i><sub>12</sub> = <i>p</i><sub>1</sub><i>q</i><sub>2</sub>, &nbsp; <i>P</i><sub>21</sub> = <i>p</i><sub>2</sub><i>q</i><sub>1</sub>, &nbsp; <i>P</i><sub>22</sub> = <i>p</i><sub>2</sub><i>q</i><sub>2</sub>"),
+          vz("Koeficient vazbové nerovnováhy (Lewontin a Kojima 1960)", "<i>D</i> = <i>P</i><sub>11</sub><i>P</i><sub>22</sub> − <i>P</i><sub>12</sub><i>P</i><sub>21</sub>"),
+          vz("Haplotypy při LD", "<i>P</i><sub>11</sub> = <i>p</i><sub>1</sub><i>q</i><sub>1</sub> + <i>D</i>, &nbsp; <i>P</i><sub>12</sub> = <i>p</i><sub>1</sub><i>q</i><sub>2</sub> − <i>D</i><br><i>P</i><sub>21</sub> = <i>p</i><sub>2</sub><i>q</i><sub>1</sub> − <i>D</i>, &nbsp; <i>P</i><sub>22</sub> = <i>p</i><sub>2</sub><i>q</i><sub>2</sub> + <i>D</i>"),
+          vz("Jedna generace rekombinace", "<i>P</i>′<sub>11</sub> = <i>P</i><sub>11</sub> − <i>rD</i><sub>0</sub>, &nbsp; <i>P</i>′<sub>12</sub> = <i>P</i><sub>12</sub> + <i>rD</i><sub>0</sub><br><i>P</i>′<sub>21</sub> = <i>P</i><sub>21</sub> + <i>rD</i><sub>0</sub>, &nbsp; <i>P</i>′<sub>22</sub> = <i>P</i><sub>22</sub> − <i>rD</i><sub>0</sub>"),
+          vz("Pokles LD v čase", "<i>D</i><sub><i>t</i></sub> = (1 − <i>r</i>)<sup><i>t</i></sup> <i>D</i><sub>0</sub>"),
+          vz("Meze koeficientu D", "<i>D</i><sub>max</sub> = min(<i>p</i><sub>1</sub><i>q</i><sub>2</sub>, <i>p</i><sub>2</sub><i>q</i><sub>1</sub>), &nbsp; <i>D</i><sub>min</sub> = −min(<i>p</i><sub>1</sub><i>q</i><sub>1</sub>, <i>p</i><sub>2</sub><i>q</i><sub>2</sub>)"),
+          vz("Relativní míry LD", paste0("<i>D</i>′ = ", zl("<i>D</i>", "<i>D</i><sub>max</sub>"), " (resp. ", zl("<i>D</i>", "|<i>D</i><sub>min</sub>|"), " pro <i>D</i> &lt; 0), &nbsp; <i>r</i><sup>2</sup> = ", zl("<i>D</i><sup>2</sup>", "<i>p</i><sub>1</sub><i>p</i><sub>2</sub><i>q</i><sub>1</sub><i>q</i><sub>2</sub>"))),
+          vz("Poločas LD", paste0("<i>t</i><sub>½</sub> = ", zl("ln 0,5", "ln(1 − <i>r</i>)"), " ≈ ", zl("0,69", "<i>r</i>"))),
+          vz("Gamety dvojitého heterozygota (cis AB/ab)", "AB = ab = (1 − <i>r</i>)/2, &nbsp; Ab = aB = <i>r</i>/2 &nbsp; (trans Ab/aB: opačně)"),
+          vz("Rovnovážná dvoulokusová genotypová frekvence", "např. AaBb: &nbsp; 4<i>p</i><sub>1</sub><i>p</i><sub>2</sub><i>q</i><sub>1</sub><i>q</i><sub>2</sub> = 2<i>p</i><sub>1</sub><i>p</i><sub>2</sub> · 2<i>q</i><sub>1</sub><i>q</i><sub>2</sub>")
+        )
+      ),
+      
+      mainPanel(
+        width = 8,
+        fluidRow(
+          column(12, plotOutput("plot_ld_decay", height = "360px"))
+        ),
+        br(),
+        fluidRow(
+          column(6, plotOutput("plot_ld_haplo", height = "330px")),
+          column(6, plotOutput("plot_ld_gamety", height = "330px"))
+        ),
+        br(),
+        fluidRow(
+          column(12,
+                 wellPanel(
+                   h4("Rovnovážné dvoulokusové genotypové frekvence (vazbová rovnováha)"),
+                   tableOutput("tabulka_ld_geno")
+                 )
+          )
+        )
+      )
+    )
+  ),
+  
+  # =================================================================
+  # ZÁLOŽKA 9: GENY VÁZANÉ NA X CHROMOZOM (DIFERENCIÁLNÍ ÚSEK)
+  # =================================================================
+  tabPanel(
+    "9. Geny vázané na X",
+    sidebarLayout(
+      sidebarPanel(
+        width = 4,
+        h3("Geny na chromozomu X"),
+        helpText("Gen na diferenciálním úseku X (typ Drosophila): samice jsou diploidní (AA, Aa, aa), samci hemizygotní (A/−, a/−). Samec dostává X vždy od matky, samice od obou rodičů. Rovnováha se proto nedosáhne v jedné generaci, ale tlumenými oscilacemi."),
+        selectInput("x_preset", "Výukový scénář (Preset):",
+                    choices = c(
+                      "Vlastní nastavení" = "custom",
+                      "Přednáška: alela A jen u samic (pf = 1, pm = 0)" = "lecture",
+                      "Opačně: alela A jen u samců (pf = 0, pm = 1)" = "reverse",
+                      "Rovnováha (pf = pm = 0,7)" = "equil"
+                    ), selected = "custom"),
+        hr(),
+        sliderInput("x_pf", "Frekvence alely A u samic (pf):", min = 0, max = 1, value = 1, step = 0.01),
+        sliderInput("x_pm", "Frekvence alely A u samců (pm):", min = 0, max = 1, value = 0, step = 0.01),
+        sliderInput("x_G", "Počet generací (t):", min = 5, max = 40, value = 12, step = 1),
+        hr(),
+        wellPanel(
+          h4("Výsledek:"),
+          htmlOutput("x_summary_html")
+        ),
+        vzorce_box(
+          vz("Frekvence alely A (genotypy samic d, h, r; samci A/−, a/−)", "<i>p</i><sub><i>f</i></sub> = <i>d</i> + <i>h</i>/2, &nbsp; <i>p</i><sub><i>m</i></sub> = frekvence samců A/−"),
+          vz("Průměrná frekvence v populaci (2/3 chromozomů X je u samic)", paste0("<i>p&#772;</i> = ", zl("2", "3"), "<i>p</i><sub><i>f</i></sub> + ", zl("1", "3"), "<i>p</i><sub><i>m</i></sub>, &nbsp; <i>q&#772;</i> = 1 − <i>p&#772;</i>")),
+          vz("Přenos do další generace", paste0("<i>p</i>′<sub><i>m</i></sub> = <i>p</i><sub><i>f</i></sub>, &nbsp; <i>p</i>′<sub><i>f</i></sub> = ", zl("<i>p</i><sub><i>f</i></sub> + <i>p</i><sub><i>m</i></sub>", "2"))),
+          vz("Rozdíl mezi pohlavími", paste0("<i>p</i>′<sub><i>f</i></sub> − <i>p</i>′<sub><i>m</i></sub> = −", zl("1", "2"), "(<i>p</i><sub><i>f</i></sub> − <i>p</i><sub><i>m</i></sub>), &nbsp; <i>D</i><sub><i>t</i></sub> = (−½)<sup><i>t</i></sup> <i>D</i><sub>0</sub>")),
+          vz("Rovnováha", "<i>p</i><sub><i>f</i></sub> = <i>p</i><sub><i>m</i></sub> = <i>p&#772;</i>"),
+          vz("Genotypy dcer (z gamet generace t)", "AA = <i>p</i><sub><i>f</i></sub><i>p</i><sub><i>m</i></sub>, &nbsp; Aa = <i>p</i><sub><i>f</i></sub><i>q</i><sub><i>m</i></sub> + <i>q</i><sub><i>f</i></sub><i>p</i><sub><i>m</i></sub>, &nbsp; aa = <i>q</i><sub><i>f</i></sub><i>q</i><sub><i>m</i></sub>"),
+          vz("Rovnovážné frekvence", "samice: <i>p</i><sup>2</sup>, 2<i>pq</i>, <i>q</i><sup>2</sup>; &nbsp; samci: <i>p</i>, <i>q</i>"),
+          vz("Recesivní X-vázaný znak", paste0("samci: <i>q</i>; &nbsp; samice: <i>q</i><sup>2</sup>; &nbsp; poměr ", zl("<i>q</i>", "<i>q</i><sup>2</sup>"), " = ", zl("1", "<i>q</i>")))
+        )
+      ),
+      
+      mainPanel(
+        width = 8,
+        fluidRow(
+          column(12, plotOutput("plot_x_freq", height = "380px"))
+        ),
+        br(),
+        fluidRow(
+          column(6, plotOutput("plot_x_geno", height = "330px")),
+          column(6, plotOutput("plot_x_fenotyp", height = "330px"))
+        )
+      )
+    )
   )
 )
 
@@ -860,6 +1023,32 @@ ui <- navbarPage(
 # 3. SERVEROVÁ LOGIKA
 # -------------------------------------------------------------------
 server <- function(input, output, session) {
+ 
+  # -----------------------------------------------------------------
+  # VYSKAKOVACÍ OKNO S CITACEMI (SAMOSTATNÝ OBSERVER)
+  # -----------------------------------------------------------------
+  observeEvent(input$btn_cite_modal, {
+    showModal(modalDialog(
+      title = "Jak citovat tuto aplikaci",
+      size = "m",
+      easyClose = TRUE,
+      footer = modalButton("Zavřít"),
+      
+      p("Pokud aplikaci využijete ve své práci nebo výuce, citujte ji prosím následovně:"),
+      
+      tags$b("ČSN ISO 690:2022:"),
+      div(
+        style = "background: #f4f6f8; border-left: 3px solid #2c7be5; padding: 8px 12px; margin: 5px 0 15px 0; font-family: monospace; font-size: 0.9em;",
+        "URBAN, Tomáš, 2026. Genetika populací: HWE & Evoluční síly [interaktivní webová aplikace]. Brno: Mendelova univerzita v Brně [cit. 2026-10-09]. Dostupné z: https://tgu-gen.github.io/Mendel/"
+      ),
+      
+      tags$b("APA 7:"),
+      div(
+        style = "background: #f4f6f8; border-left: 3px solid #28a745; padding: 8px 12px; margin: 5px 0 10px 0; font-family: monospace; font-size: 0.9em;",
+        "Urban, T. (2026). Genetika populací: HWE & Evoluční síly [Interaktivní webová aplikace]. Mendelova univerzita v Brně. https://tgu-gen.github.io/Mendel/"
+      )
+    ))
+  })
   
   # -----------------------------------------------------------------
   # LOGIKA PRO ZÁLOŽKU 1: DYNAMICKÝ PUNNETTŮV ČTVEREC
@@ -1109,8 +1298,9 @@ server <- function(input, output, session) {
       "<div style='padding: 10px; border-radius: 5px; background-color: ", ifelse(sig_005, "#f8d7da", "#d4edda"), "; color: ", ifelse(sig_005, "#721c24", "#155724"), ";'>",
       status_text, "</div>"
     ))
+    
   })
-
+  
   # -----------------------------------------------------------------
   # LOGIKA PRO ZÁLOŽKU 3: HWE (3 ALELY / ABO)
   # -----------------------------------------------------------------
@@ -1714,6 +1904,267 @@ server <- function(input, output, session) {
       "<b>Deterministické q v generaci ", res$generace, ":</b> ", round(res$q_det[res$generace + 1], 3), "<br/>",
       "<b>Průměrné q simulovaných linií:</b> ", round(res$q_mean[res$generace + 1], 3),
       if (res$poly > 0) paste0("<br/><small>Pozn.: ", res$poly, " linií ještě segreguje, simulovaný podíl fixace je proto v čase t dolním odhadem. Prodlužte počet generací.</small>") else ""
+    ))
+  })
+
+  # -----------------------------------------------------------------
+  # LOGIKA PRO ZÁLOŽKU 8: VAZBA GENŮ A VAZBOVÁ NEROVNOVÁHA (LD)
+  # -----------------------------------------------------------------
+  ld_data <- reactive({
+    req(is.finite(input$ld_G), input$ld_G >= 1)
+    p1 <- input$ld_p1; q1 <- input$ld_q1
+    m <- ld_meze(p1, q1)
+    D0 <- if (input$ld_Dp >= 0) input$ld_Dp * m$Dmax else input$ld_Dp * abs(m$Dmin)
+    list(p1 = p1, p2 = 1 - p1, q1 = q1, q2 = 1 - q1,
+         Dmax = m$Dmax, Dmin = m$Dmin, D0 = D0,
+         r = input$ld_r, generace = input$ld_G,
+         df = simuluj_ld(p1, q1, D0, input$ld_r, input$ld_G))
+  })
+  
+  output$plot_ld_decay <- renderPlot({
+    res <- ld_data()
+    t_seq <- 0:res$generace
+    df_main <- data.frame(t = t_seq, D = res$D0 * (1 - res$r)^t_seq)
+    
+    g <- ggplot()
+    if (isTRUE(input$ld_compare)) {
+      r_ref <- c(0.5, 0.3, 0.1, 0.05)
+      lab_r <- paste0("r = ", sub("\\.", ",", as.character(r_ref)))
+      df_ref <- do.call(rbind, lapply(seq_along(r_ref), function(i) {
+        data.frame(t = t_seq, D = res$D0 * (1 - r_ref[i])^t_seq, r = lab_r[i])
+      }))
+      df_ref$r <- factor(df_ref$r, levels = lab_r)
+      g <- g + geom_line(data = df_ref, aes(x = t, y = D, color = r), linewidth = 0.9) +
+        scale_color_viridis_d(end = 0.85)
+    }
+    g +
+      geom_hline(yintercept = 0, linetype = "dashed", color = "gray40") +
+      geom_line(data = df_main, aes(x = t, y = D), linewidth = 1.7, color = "black") +
+      labs(title = paste0("Pokles vazbové nerovnováhy: D(t) = (1 − r)^t · D0  (vybrané r = ", sub("\\.", ",", as.character(res$r)), ", tučně)"),
+           subtitle = paste0("D0 = ", round(res$D0, 4), " (Dmax = ", round(res$Dmax, 4), ", Dmin = ", round(res$Dmin, 4), ")"),
+           x = "Čas (generace t)", y = "Koeficient vazbové nerovnováhy D", color = NULL) +
+      theme_minimal(base_size = 13) +
+      theme(legend.position = "top",
+            plot.title = element_text(face = "bold", size = 12),
+            panel.background = element_rect(fill = "white", color = NA),
+            plot.background = element_rect(fill = "white", color = NA))
+  })
+  
+  output$plot_ld_haplo <- renderPlot({
+    res <- ld_data()
+    df <- res$df
+    hap <- c("AB", "Ab", "aB", "ab")
+    df_long <- data.frame(
+      t = rep(df$Generace, 4),
+      f = c(df$P11, df$P12, df$P21, df$P22),
+      Haplotyp = factor(rep(hap, each = nrow(df)), levels = hap)
+    )
+    df_eq <- data.frame(
+      Haplotyp = factor(hap, levels = hap),
+      f = c(res$p1 * res$q1, res$p1 * res$q2, res$p2 * res$q1, res$p2 * res$q2)
+    )
+    cols <- c(AB = "#D55E00", Ab = "#E69F00", aB = "#56B4E9", ab = "#0072B2")
+    sym <- abs(res$p1 - 0.5) < 1e-9 && abs(res$q1 - 0.5) < 1e-9
+    ggplot(df_long, aes(x = t, y = f, color = Haplotyp, linetype = Haplotyp)) +
+      geom_hline(data = df_eq, aes(yintercept = f, color = Haplotyp), linetype = "dotted", alpha = 0.7) +
+      geom_line(linewidth = 1.2) +
+      scale_color_manual(values = cols) +
+      scale_linetype_manual(values = c(AB = "solid", Ab = "solid", aB = "dashed", ab = "dashed")) +
+      ylim(0, 1) +
+      labs(title = "Frekvence haplotypů (gamet) v čase",
+           subtitle = if (sym) "Při p1 = q1 = 0,5 se AB s ab a Ab s aB překrývají (aB, ab čárkovaně). Tečkovaně: rovnováha."
+                      else "Tečkovaně: rovnovážné hodnoty (součin frekvencí alel)",
+           x = "Čas (generace t)", y = "Frekvence haplotypu", color = NULL, linetype = NULL) +
+      theme_minimal(base_size = 13) +
+      theme(legend.position = "top",
+            plot.title = element_text(face = "bold"),
+            panel.background = element_rect(fill = "white", color = NA),
+            plot.background = element_rect(fill = "white", color = NA))
+  })
+  
+  output$plot_ld_gamety <- renderPlot({
+    res <- ld_data()
+    r <- res$r
+    cis <- identical(input$ld_faze, "cis")
+    f_par <- (1 - r) / 2; f_rec <- r / 2
+    hap <- c("AB", "Ab", "aB", "ab")
+    f <- if (cis) c(f_par, f_rec, f_rec, f_par) else c(f_rec, f_par, f_par, f_rec)
+    typ <- if (cis) c("nerekombinantní", "rekombinantní", "rekombinantní", "nerekombinantní") else
+                    c("rekombinantní", "nerekombinantní", "nerekombinantní", "rekombinantní")
+    df <- data.frame(Gameta = factor(hap, levels = hap), f = f, Typ = typ)
+    ggplot(df, aes(x = Gameta, y = f, fill = Typ)) +
+      geom_col(width = 0.65) +
+      geom_text(aes(label = paste0(round(f * 100, 1), " %")), vjust = -0.5, fontface = "bold", size = 4) +
+      scale_fill_manual(values = c("nerekombinantní" = "#0072B2", "rekombinantní" = "#D55E00")) +
+      ylim(0, 0.6) +
+      labs(title = paste0("Gamety dvojitého heterozygota AaBb (fáze ", if (cis) "cis AB/ab" else "trans Ab/aB", ")"),
+           subtitle = paste0("Součet rekombinantních gamet = r = ", sub("\\.", ",", as.character(r))),
+           x = "Gameta", y = "Frekvence gamety", fill = NULL) +
+      theme_minimal(base_size = 13) +
+      theme(legend.position = "top",
+            plot.title = element_text(face = "bold", size = 12),
+            panel.background = element_rect(fill = "white", color = NA),
+            plot.background = element_rect(fill = "white", color = NA))
+  })
+  
+  output$ld_summary_html <- renderUI({
+    res <- ld_data()
+    G <- res$generace
+    D_G <- res$D0 * (1 - res$r)^G
+    prod_p <- res$p1 * res$p2 * res$q1 * res$q2
+    r2_0 <- res$D0^2 / prod_p
+    r2_G <- D_G^2 / prod_p
+    Dprime_G <- if (D_G >= 0) { if (res$Dmax > 0) D_G / res$Dmax else 0 } else { if (res$Dmin < 0) D_G / abs(res$Dmin) else 0 }
+    if (res$r <= 0) {
+      t_half <- "∞ (úplná vazba: LD se nesnižuje)"
+      t_05 <- "∞"
+    } else {
+      t_half <- paste0(sub("\\.", ",", as.character(round(log(0.5) / log(1 - res$r), 1))), " generace")
+      t_05 <- paste0(sub("\\.", ",", as.character(round(log(0.05) / log(1 - res$r), 1))), " generace")
+    }
+    HTML(paste0(
+      "<b>Frekvence alel:</b> A = ", round(res$p1, 3), ", a = ", round(res$p2, 3), "; B = ", round(res$q1, 3), ", b = ", round(res$q2, 3), "<br/>",
+      "<b>Meze D:</b> D<sub>min</sub> = ", round(res$Dmin, 4), ", D<sub>max</sub> = ", round(res$Dmax, 4), "<br/>",
+      "<b>D<sub>0</sub> =</b> ", round(res$D0, 4), " &nbsp; (r² = ", round(r2_0, 3), ")<br/>",
+      "<b>D<sub>", G, "</sub> =</b> <span style='font-weight: bold;'>", round(D_G, 5), "</span> &nbsp; (r² = ", round(r2_G, 4), ", D′ = ", round(Dprime_G, 3), ")<br/>",
+      "<hr style='margin: 6px 0;'/>",
+      "<b>Poločas LD:</b> ", t_half, "<br/>",
+      "<b>Pokles LD na 5 % původní hodnoty:</b> ", t_05, "<br/>",
+      "<small>Alelové frekvence se rekombinací nemění, mění se jen jejich asociace v gametách.</small>"
+    ))
+  })
+  
+  output$tabulka_ld_geno <- renderTable({
+    res <- ld_data()
+    A_gen <- c(AA = res$p1^2, Aa = 2 * res$p1 * res$p2, aa = res$p2^2)
+    B_gen <- c(BB = res$q1^2, Bb = 2 * res$q1 * res$q2, bb = res$q2^2)
+    M <- outer(B_gen, A_gen)
+    out <- data.frame(Genotyp = c(names(B_gen), "Celkem"),
+                      AA = c(M[, "AA"], sum(M[, "AA"])),
+                      Aa = c(M[, "Aa"], sum(M[, "Aa"])),
+                      aa = c(M[, "aa"], sum(M[, "aa"])),
+                      Celkem = c(rowSums(M), sum(M)))
+    out
+  }, digits = 4)
+  
+  # -----------------------------------------------------------------
+  # LOGIKA PRO ZÁLOŽKU 9: GENY VÁZANÉ NA X CHROMOZOM
+  # -----------------------------------------------------------------
+  observeEvent(input$x_preset, {
+    if (input$x_preset == "lecture") {
+      updateSliderInput(session, "x_pf", value = 1)
+      updateSliderInput(session, "x_pm", value = 0)
+    } else if (input$x_preset == "reverse") {
+      updateSliderInput(session, "x_pf", value = 0)
+      updateSliderInput(session, "x_pm", value = 1)
+    } else if (input$x_preset == "equil") {
+      updateSliderInput(session, "x_pf", value = 0.7)
+      updateSliderInput(session, "x_pm", value = 0.7)
+    }
+  }, ignoreInit = TRUE)
+  
+  x_data <- reactive({
+    req(is.finite(input$x_G), input$x_G >= 1)
+    simuluj_X(input$x_pf, input$x_pm, input$x_G)
+  })
+  
+  output$plot_x_freq <- renderPlot({
+    d <- x_data()
+    p_bar <- d$p_prumer[1]
+    df <- data.frame(
+      t = rep(d$Generace, 2),
+      p = c(d$pf, d$pm),
+      Pohlaví = factor(rep(c("Samice (pf)", "Samci (pm = pf z předchozí gen.)"), each = nrow(d)),
+                       levels = c("Samice (pf)", "Samci (pm = pf z předchozí gen.)"))
+    )
+    ggplot(df, aes(x = t, y = p, color = Pohlaví)) +
+      geom_hline(yintercept = p_bar, linetype = "dashed", color = "gray40") +
+      annotate("text", x = max(d$Generace), y = p_bar, label = paste0("rovnovážná frekvence p̄ = ", round(p_bar, 3)),
+               hjust = 1, vjust = -0.7, size = 3.8, color = "gray30") +
+      geom_line(linewidth = 1.2) + geom_point(size = 2.5) +
+      scale_color_manual(values = c("#1f3fbf", "#d62728")) +
+      scale_x_continuous(breaks = function(lims) seq(0, floor(lims[2]), by = max(1, floor(lims[2] / 10)))) +
+      ylim(0, 1) +
+      labs(title = "Gen na chromozomu X: tlumené oscilace frekvence alely A k rovnováze",
+           subtitle = "Rozdíl mezi pohlavími se v každé generaci zmenší na polovinu a změní znaménko",
+           x = "Generace (t)", y = "Frekvence alely A", color = NULL) +
+      theme_minimal(base_size = 13) +
+      theme(legend.position = "top",
+            plot.title = element_text(face = "bold", size = 12),
+            panel.background = element_rect(fill = "white", color = NA),
+            plot.background = element_rect(fill = "white", color = NA))
+  })
+  
+  output$plot_x_geno <- renderPlot({
+    d <- x_data()
+    p_bar <- d$p_prumer[1]; q_bar <- 1 - p_bar
+    gen <- c("AA", "Aa", "aa")
+    df <- data.frame(
+      t = rep(d$Generace, 3),
+      f = c(d$AA, d$Aa, d$aa),
+      Genotyp = factor(rep(gen, each = nrow(d)), levels = gen)
+    )
+    df_eq <- data.frame(Genotyp = factor(gen, levels = gen), f = c(p_bar^2, 2 * p_bar * q_bar, q_bar^2))
+    cols <- c(AA = "#D55E00", Aa = "#0072B2", aa = "#009E73")
+    ggplot(df, aes(x = t, y = f, color = Genotyp)) +
+      geom_hline(data = df_eq, aes(yintercept = f, color = Genotyp), linetype = "dashed", alpha = 0.7) +
+      geom_line(linewidth = 1.2) + geom_point(size = 2) +
+      scale_color_manual(values = cols) +
+      scale_x_continuous(breaks = function(lims) seq(0, floor(lims[2]), by = max(1, floor(lims[2] / 10)))) +
+      ylim(0, 1) +
+      labs(title = "Genotypy samic",
+           subtitle = "Čárkovaně: rovnovážné p², 2pq, q²",
+           x = "Generace (t)", y = "Frekvence genotypu u samic", color = NULL) +
+      theme_minimal(base_size = 13) +
+      theme(legend.position = "top",
+            plot.title = element_text(face = "bold"),
+            panel.background = element_rect(fill = "white", color = NA),
+            plot.background = element_rect(fill = "white", color = NA))
+  })
+  
+  output$plot_x_fenotyp <- renderPlot({
+    d <- x_data()
+    p_bar <- d$p_prumer[1]; q_bar <- 1 - p_bar
+    df <- data.frame(
+      t = rep(d$Generace, 2),
+      f = c(1 - d$pm, d$aa),
+      Pohlaví = factor(rep(c("Samci (a/−)", "Samice (aa)"), each = nrow(d)), levels = c("Samci (a/−)", "Samice (aa)"))
+    )
+    df_eq <- data.frame(Pohlaví = factor(c("Samci (a/−)", "Samice (aa)"), levels = c("Samci (a/−)", "Samice (aa)")),
+                        f = c(q_bar, q_bar^2))
+    ggplot(df, aes(x = t, y = f, color = Pohlaví)) +
+      geom_hline(data = df_eq, aes(yintercept = f, color = Pohlaví), linetype = "dashed", alpha = 0.7) +
+      geom_line(linewidth = 1.2) + geom_point(size = 2) +
+      scale_color_manual(values = c("#d62728", "#1f3fbf")) +
+      scale_x_continuous(breaks = function(lims) seq(0, floor(lims[2]), by = max(1, floor(lims[2] / 10)))) +
+      ylim(0, 1) +
+      labs(title = "Recesivní fenotyp (alela a)",
+           subtitle = "V rovnováze: samci q, samice q²",
+           x = "Generace (t)", y = "Frekvence recesivního fenotypu", color = NULL) +
+      theme_minimal(base_size = 13) +
+      theme(legend.position = "top",
+            plot.title = element_text(face = "bold"),
+            panel.background = element_rect(fill = "white", color = NA),
+            plot.background = element_rect(fill = "white", color = NA))
+  })
+  
+  output$x_summary_html <- renderUI({
+    d <- x_data()
+    pf0 <- d$pf[1]; pm0 <- d$pm[1]
+    p_bar <- d$p_prumer[1]; q_bar <- 1 - p_bar
+    D0 <- pf0 - pm0
+    t_stop <- if (abs(D0) > 0.01) ceiling(log(0.01 / abs(D0)) / log(0.5)) else 0
+    ratio_txt <- if (q_bar > 0) paste0(round(1 / q_bar, 2), "× častěji u samců") else "–"
+    G <- nrow(d) - 1
+    HTML(paste0(
+      "<b>Průměrná frekvence A (konstantní):</b> p̄ = ", round(p_bar, 4), ", q̄ = ", round(q_bar, 4), "<br/>",
+      "<b>Počáteční rozdíl:</b> p<sub>f</sub> − p<sub>m</sub> = ", round(D0, 3), "<br/>",
+      "<b>Generací do |p<sub>f</sub> − p<sub>m</sub>| &lt; 0,01:</b> ", t_stop, "<br/>",
+      "<b>Po ", G, " generacích:</b> p<sub>f</sub> = ", round(d$pf[G + 1], 4), ", p<sub>m</sub> = ", round(d$pm[G + 1], 4), "<br/>",
+      "<hr style='margin: 6px 0;'/>",
+      "<b>Rovnovážné genotypy samic:</b> AA = ", round(p_bar^2, 4), ", Aa = ", round(2 * p_bar * q_bar, 4), ", aa = ", round(q_bar^2, 4), "<br/>",
+      "<b>Rovnovážné frekvence u samců:</b> A/− = ", round(p_bar, 4), ", a/− = ", round(q_bar, 4), "<br/>",
+      "<b>Recesivní fenotyp:</b> samci ", round(q_bar, 4), ", samice ", round(q_bar^2, 4), " (", ratio_txt, ")"
     ))
   })
 }
