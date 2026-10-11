@@ -430,7 +430,7 @@ vzorce_box <- function(...) {
 # Soubor s logem uložte do podsložky "www" vedle tohoto skriptu (např. www/logo.png).
 # Pokud soubor neexistuje, zobrazí se místo loga textový odkaz (logo_text).
 logo_soubor <- "logo.png"                # název souboru ve složce www
-logo_odkaz  <- "https://www.mendelu.cz"  # adresa, na kterou logo odkazuje
+logo_odkaz  <- "https://umfgz.af.mendelu.cz/"  # adresa, na kterou logo odkazuje
 logo_text   <- "MENDELU"                 # záložní text + popisek při najetí myší
 logo_vyska  <- 36                        # výška loga v pixelech
 
